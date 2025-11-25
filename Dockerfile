@@ -34,8 +34,8 @@ ARG DOWNLOAD_SRC=/tmp/src
 ENV DOWNLOAD_SRC=$DOWNLOAD_SRC
 
 # PHP版本
-# https://github.com/php
-ARG PHP_VERSION=8.4.10
+# https://github.com/php/php-src
+ARG PHP_VERSION=8.5.0
 ENV PHP_VERSION=$PHP_VERSION
 # PHP编译参数
 ARG PHP_BUILD_CONFIG="\
@@ -116,15 +116,15 @@ ENV PHP_BUILD_CONFIG=$PHP_BUILD_CONFIG
 # 扩展插件版本
 # redis
 # https://pecl.php.net/package/redis
-ARG REDIS_VERSION=6.2.0
+ARG REDIS_VERSION=6.3.0
 ENV REDIS_VERSION=$REDIS_VERSION
 # swoole
 # https://pecl.php.net/package/swoole
-ARG SWOOLE_VERSION=6.0.2
+ARG SWOOLE_VERSION=6.1.2
 ENV SWOOLE_VERSION=$SWOOLE_VERSION
 # mongodb
 # https://pecl.php.net/package/mongodb
-ARG MONGODB_VERSION=2.1.1
+ARG MONGODB_VERSION=2.1.4
 ENV MONGODB_VERSION=$MONGODB_VERSION
 
 # 构建阶段依赖软件包
