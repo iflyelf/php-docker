@@ -1,0 +1,62 @@
+services:
+
+  # 服务名
+  php:
+    # 模拟一个伪终端
+    tty: true
+    # 打开标准输入,可以接受外部输入
+    stdin_open: true
+    # 指定容器名称
+    container_name: php
+    # 指定为镜像名称或镜像ID
+    image: iflyelf/php:latest
+    # 允许容器中运行一些特权命令
+    privileged: true
+    # 指定容器退出后的重启策略为始终重启
+    restart: always
+    # 数据卷所挂载路径设置
+    volumes:
+      # 配置目录与文件(修改后重启容器生效)
+      - ./conf/php/etc/php.ini:/data/php/etc/php.ini:rw,cached
+      - ./conf/php/etc/php-fpm.conf:/data/php/etc/php-fpm.conf:rw,cached
+      - ./conf/php/etc/php-fpm.d/www.conf:/data/php/etc/php-fpm.d/www.conf:rw,cached
+      # 日志目录
+      - ./logs/php:/data/php/var/log:delegated
+      # 同步宿主机时区与时间
+      - /usr/share/zoneinfo:/usr/share/zoneinfo:ro,cached
+      - /etc/localtime:/etc/localtime:ro,cached
+    # 配置容器连接的网络
+    networks:
+      php:
+        ipv4_address: 172.21.0.2
+        ipv6_address: fd98::2
+    # 暴露端口信息
+    ports:
+    - "9000:9000"
+    # 指定容器的 ulimits 限制值
+    ulimits:
+      nproc: 65535
+      nofile:
+          soft: 65535
+          hard: 65535
+
+
+networks:
+  php:
+    driver: bridge
+    enable_ipv6: true
+    driver_opts:
+      com.docker.network.bridge.name: php
+      com.docker.network.bridge.enable_icc: "true"
+      com.docker.network.bridge.enable_ip_forwarding: "true"
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+      com.docker.network.bridge.host_binding_ipv4: "0.0.0.0"
+      com.docker.network.bridge.host_binding_ipv6: "::/0"
+      com.docker.network.driver.mtu: 1500
+    ipam:
+      driver: default
+      config:
+      - subnet: 172.21.0.0/24
+        gateway: 172.21.0.1
+      - subnet: fd98::/64
+        gateway: fd98::1

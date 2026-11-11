@@ -1,0 +1,6 @@
+.git
+.github
+logs
+*.log
+README.md
+docker-compose.yml
