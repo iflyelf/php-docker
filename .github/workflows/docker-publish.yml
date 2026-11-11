@@ -20,6 +20,7 @@ on:
     paths:
       - 'Dockerfile'
       - 'conf/**'
+      - 'scripts/**'
       - '.github/workflows/docker-publish.yml'
   # 手动触发工作流
   workflow_dispatch:
@@ -46,6 +47,8 @@ jobs:
   build:
     # 选择虚拟环境
     runs-on: ubuntu-latest
+    # 多架构 PHP 编译较慢(arm64 走 QEMU), 首次构建可能 2~3 小时, 超时兜底
+    timeout-minutes: 300
     if: github.event_name == 'schedule' || github.event.repository.owner.id == github.event.sender.id
     strategy:
       fail-fast: false
@@ -53,10 +56,10 @@ jobs:
         include:
           - DOCKER_TAG: latest
 
-    # 权限
+    # 权限(contents: write 用于提交版本号更新)
     permissions:
       actions: write
-      contents: read
+      contents: write
 
     # 运行步骤
     steps:
@@ -66,6 +69,28 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
+
+    # 关键: 先同步 PHP / PECL 最新版本号, 再构建, 避免版本号不是最新
+    - name: 同步 PHP / PECL 最新版本号(先更新, 再构建)
+      run: bash scripts/update-version.sh
+
+    - name: 提交版本号更新
+      if: env.CHANGED == '1'
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        git add Dockerfile conf/php/etc/php.ini
+        git commit -m "chore: 自动更新 PHP 及扩展版本号${SUMMARY}"
+        # 推送失败不影响本次构建(镜像仍基于更新后的本地文件构建)
+        git push || echo "::warning::版本更新推送失败, 本次构建仍使用更新后的本地文件"
+
+    # 从 Dockerfile 读取当前 PHP 版本, 作为附加镜像标签
+    - name: 读取 PHP 版本号
+      id: phpver
+      run: |
+        PHP_VERSION=$(grep -oP '^ARG PHP_VERSION=\K.*' Dockerfile | head -1)
+        echo "检测到 PHP 版本: ${PHP_VERSION}"
+        echo "version=${PHP_VERSION}" >> "$GITHUB_OUTPUT"
 
     - name: 安装 QEMU
       uses: docker/setup-qemu-action@v3
@@ -77,14 +102,6 @@ jobs:
       uses: docker/setup-buildx-action@v3
       with:
         version: latest
-
-    # 从 Dockerfile 读取当前 PHP 版本, 作为附加镜像标签
-    - name: 读取 PHP 版本号
-      id: phpver
-      run: |
-        PHP_VERSION=$(grep -oP '^ARG PHP_VERSION=\K.*' Dockerfile | head -1)
-        echo "检测到 PHP 版本: ${PHP_VERSION}"
-        echo "version=${PHP_VERSION}" >> "$GITHUB_OUTPUT"
 
     - name: 登录 DockerHub
       uses: docker/login-action@v3
@@ -104,6 +121,9 @@ jobs:
       # 华为云 SWR 不支持 OCI media types 与证明清单(attestation)，
       # 否则报 "Invalid image, fail to parse 'manifest.json'"。
       # 关闭 provenance/sbom 并输出 Docker 媒体类型以兼容 SWR。
+      #
+      # 缓存策略: mode=max 可复用 PHP 编译层, 之后版本没变时构建只需几分钟;
+      # ignore-error=true 避免缓存导出失败拖垮整个构建(本次即卡在缓存导出)。
       with:
         context: .
         file: ./Dockerfile
@@ -118,7 +138,7 @@ jobs:
           ${{ env.SWR_REGISTRY }}/${{ env.SWR_ORGANIZATION }}/php:${{ matrix.DOCKER_TAG }}
           ${{ env.SWR_REGISTRY }}/${{ env.SWR_ORGANIZATION }}/php:${{ steps.phpver.outputs.version }}
         cache-from: type=gha
-        cache-to: type=gha,mode=max
+        cache-to: type=gha,mode=max,ignore-error=true
 
     # 华为云 SWR 镜像仓库默认私有，push 后调用 SWR API 设为公开
     # 需 Secrets: SWR_AK / SWR_SK（华为云账号 AK/SK，具备 swr:repo:updateRepo 权限）

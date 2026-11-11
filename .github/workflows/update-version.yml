@@ -7,6 +7,10 @@
 
 name: 更新 PHP 及扩展版本号
 
+# 说明: 本工作流仅负责"检查并提交版本号"。
+#       实际构建工作流 docker-publish.yml 在构建前也会执行同一份脚本
+#       (scripts/update-version.sh), 因此即使本工作流未运行, 镜像也不会用旧版本号构建。
+
 # 设置触发条件
 on:
   # 定时检查(中国时间每天早4点, UTC 前一天20点; 早于镜像构建的5点)
@@ -39,107 +43,7 @@ jobs:
         fetch-depth: 0
 
     - name: 检查并更新版本号
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        set -euo pipefail
-
-        # ---------- 稳定版过滤: 排除 rc/beta/alpha/test/dev/preview/snapshot ----------
-        is_stable() {
-          echo "$1" | grep -qivE '(rc|beta|alpha|test|dev|preview|snapshot|nightly|-pre|m[0-9])'
-        }
-
-        # 语义化版本比较: 若 $1 > $2 返回 0
-        version_gt() {
-          [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]
-        }
-
-        # 取 PHP 官方最新稳定版(php.net releases JSON, 返回各主版本最新版, 取最高者)
-        php_latest() {
-          curl -fsSL 'https://www.php.net/releases/index.php?json=1' 2>/dev/null \
-            | jq -r '.[].source[]?.filename' 2>/dev/null \
-            | grep -oE '^php-[0-9]+\.[0-9]+\.[0-9]+\.tar\.gz$' \
-            | sed -E 's/^php-([0-9.]+)\.tar\.gz$/\1/' \
-            | sort -V | tail -1
-        }
-
-        # 取 PECL 扩展最新稳定版(allreleases 结果为倒序, 取首个稳定版)
-        pecl_latest_stable() {
-          curl -fsSL "https://pecl.php.net/rest/r/$1/allreleases.xml" 2>/dev/null \
-            | grep -oE '<v>[^<]+</v>' \
-            | sed -e 's|<v>||' -e 's|</v>||' \
-            | while read -r v; do is_stable "$v" && echo "$v"; done \
-            | awk 'NR==1{v=$0} END{print v}'
-        }
-
-        # 取指定 PHP 版本的 ZEND_MODULE_API_NO(即扩展目录后缀, 如 20250925)
-        zend_api_no() {
-          curl -fsSL "https://raw.githubusercontent.com/php/php-src/php-$1/Zend/zend_modules.h" 2>/dev/null \
-            | grep -oP '#define ZEND_MODULE_API_NO\s+\K[0-9]+' | head -1
-        }
-
-        DOCKERFILE=Dockerfile
-        PHP_INI=conf/php/etc/php.ini
-        CHANGED=0
-        SUMMARY=""
-
-        # 通用更新函数: $1=ARG名 $2=最新版本
-        try_update() {
-          local arg="$1"; local latest="$2"
-          [ -z "$latest" ] && { echo "  [$arg] 获取最新版本失败, 跳过"; return; }
-          local current
-          current=$(grep -oP "ARG ${arg}=\K.*" "$DOCKERFILE" | head -1 || true)
-          [ -z "$current" ] && { echo "  [$arg] Dockerfile 中未找到, 跳过"; return; }
-          if [ "$current" = "$latest" ]; then
-            echo "  [$arg] 已是最新 ($current)"
-          elif version_gt "$latest" "$current"; then
-            echo "  [$arg] 更新: $current => $latest"
-            sed -i "s|^ARG ${arg}=.*|ARG ${arg}=${latest}|" "$DOCKERFILE"
-            CHANGED=1
-            SUMMARY="${SUMMARY}\n- ${arg}: ${current} => ${latest}"
-          else
-            echo "  [$arg] 远程版本($latest)不高于当前($current), 跳过"
-          fi
-        }
-
-        echo "===== 检查 PHP ====="
-        try_update PHP_VERSION "$(php_latest)"
-
-        echo "===== 检查 PECL 扩展(仅稳定版) ====="
-        try_update REDIS_VERSION   "$(pecl_latest_stable redis)"
-        try_update SWOOLE_VERSION  "$(pecl_latest_stable swoole)"
-        try_update MONGODB_VERSION "$(pecl_latest_stable mongodb)"
-
-        # ---------- php.ini 的 extension_dir 跟随 PHP 版本自动更新 ----------
-        CURRENT_PHP=$(grep -oP 'ARG PHP_VERSION=\K.*' "$DOCKERFILE" | head -1)
-        API_NO=$(zend_api_no "$CURRENT_PHP")
-        if [ -n "$API_NO" ]; then
-          OLD_LINE=$(grep -E '^extension_dir' "$PHP_INI" | head -1)
-          NEW_LINE="extension_dir = \"/data/php/lib/php/extensions/no-debug-non-zts-${API_NO}/\""
-          if [ "$OLD_LINE" != "$NEW_LINE" ]; then
-            echo "  [extension_dir] 更新: ${OLD_LINE} => ${NEW_LINE}"
-            sed -i -E "s|^extension_dir = .*|${NEW_LINE}|" "$PHP_INI"
-            CHANGED=1
-            SUMMARY="${SUMMARY}\n- extension_dir: ${OLD_LINE} => ${NEW_LINE}"
-          else
-            echo "  [extension_dir] 已匹配 PHP ${CURRENT_PHP} (${API_NO})"
-          fi
-        else
-          echo "  [extension_dir] 获取 ZEND_MODULE_API_NO 失败, 跳过"
-        fi
-
-        echo ""
-        if [ "$CHANGED" = "1" ]; then
-          echo "检测到版本更新:"
-          echo -e "$SUMMARY"
-          echo "SUMMARY<<EOF" >> "$GITHUB_ENV"
-          echo -e "$SUMMARY" >> "$GITHUB_ENV"
-          echo "EOF" >> "$GITHUB_ENV"
-          echo "CHANGED=1" >> "$GITHUB_ENV"
-        else
-          echo "所有版本均为最新, 无需更新"
-          echo "CHANGED=0" >> "$GITHUB_ENV"
-        fi
+      run: bash scripts/update-version.sh
 
     - name: 提交更新
       if: env.CHANGED == '1'

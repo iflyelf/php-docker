@@ -71,22 +71,36 @@ docker compose up -d
 
 以下情况会触发 [GitHub Actions](./.github/workflows/docker-publish.yml) 构建并推送到 Docker Hub 与华为云 SWR：
 
-- 推送 `Dockerfile`、`conf/**` 或工作流文件变更
+- 推送 `Dockerfile`、`conf/**`、`scripts/**` 或工作流文件变更
 - 手动触发（workflow_dispatch）
 - Star 仓库
 - 定时构建：**中国时间每天早 5 点**（UTC 21:00）
 
 同一分支仅保留最新一次构建（`concurrency` + `cancel-in-progress`），避免多架构构建并发堆积。
 
+### 构建前自动同步版本号
+
+构建流程的**第一步**会执行 [scripts/update-version.sh](./scripts/update-version.sh)：
+先检查并更新 `Dockerfile` 的 `PHP_VERSION` / `REDIS_VERSION` / `SWOOLE_VERSION` / `MONGODB_VERSION`
+及 `php.ini` 的 `extension_dir`，如有变化则自动提交，**然后再构建**。
+因此即使定时更新工作流未运行，也不会用旧版本号构建镜像。
+
 ### 版本自动更新
 
-[update-version.yml](./.github/workflows/update-version.yml) 每天中国时间早 4 点检查：
+[update-version.yml](./.github/workflows/update-version.yml) 每天中国时间早 4 点单独执行同一份脚本：
 
 - PHP 最新**稳定版**（php.net releases，排除 RC/beta/alpha 等，只升不降）
 - PECL 扩展 redis / swoole / mongodb 最新**稳定版**
 - `php.ini` 的 `extension_dir` 同步为最新 `ZEND_MODULE_API_NO`
 
-有更新则自动提交，并在随后的定时构建中产出新镜像。
+> 该工作流只负责提交版本号；实际构建由 `docker-publish.yml` 完成，且其构建前会再次执行同一脚本，二者不会冲突。
+
+### 构建耗时说明
+
+- 首次全量构建（无缓存）：多架构 + arm64 QEMU 模拟，约 **2~3 小时**；
+- 之后版本未变时：命中 `type=gha` 缓存，通常 **几分钟**；
+- `cache-to: mode=max,ignore-error=true`：保留可复用的编译层，缓存导出失败不会中断构建；
+- 任务超时保护：`timeout-minutes: 300`。
 
 ### 所需 Secrets
 
