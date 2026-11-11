@@ -69,7 +69,7 @@ jobs:
             | grep -oE '<v>[^<]+</v>' \
             | sed -e 's|<v>||' -e 's|</v>||' \
             | while read -r v; do is_stable "$v" && echo "$v"; done \
-            | head -1
+            | awk 'NR==1{v=$0} END{print v}'
         }
 
         # 取指定 PHP 版本的 ZEND_MODULE_API_NO(即扩展目录后缀, 如 20250925)
