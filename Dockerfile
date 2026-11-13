@@ -71,10 +71,10 @@ ARG PHP_BUILD_CONFIG="\
     --with-gettext \
     --with-openssl \
     --with-external-pcre \
-    --with-pgsql \
-    --with-pdo-pgsql \
-    --with-mysqli=mysqlnd \
-    --with-pdo-mysql=mysqlnd \
+    --with-pgsql=shared \
+    --with-pdo-pgsql=shared \
+    --with-mysqli=shared,mysqlnd \
+    --with-pdo-mysql=shared,mysqlnd \
     --with-sqlite3 \
     --with-pdo-sqlite \
     --with-xsl \
@@ -314,9 +314,10 @@ RUN set -eux && \
     # 软链 php/php-fpm 到系统 PATH
     ln -sf ${PHP_DIR}/bin/* /usr/bin/ && \
     ln -sf ${PHP_DIR}/sbin/* /usr/sbin/ && \
-    # smoke test: 版本 + 已加载扩展 + fpm 配置校验
-    php -v && \
-    php -m | grep -iE 'redis|swoole|mongodb|pgsql|pdo_mysql|pdo_pgsql|mysqli|opcache' && \
+    # smoke test: 启动无告警 + 关键扩展全部加载 + fpm 配置校验
+    # 注意: 必须逐个校验(旧的 grep 方式只要命中任意一个就通过, 会漏掉缺失的扩展)
+    test -z "$(php -v 2>&1 | grep -iE 'warning|deprecated')" && \
+    php -r 'foreach (["redis","swoole","mongodb","mysqli","pgsql","pdo_mysql","pdo_pgsql"] as $e) { if (!extension_loaded($e)) { fwrite(STDERR, "ERROR: 缺少扩展 " . $e . "\n"); exit(1); } } if (!extension_loaded("Zend OPcache")) { fwrite(STDERR, "ERROR: opcache 未启用\n"); exit(1); } echo "扩展自检通过\n";' && \
     php-fpm -t
 
 # ***** Zabbix 前端依赖自检 *****

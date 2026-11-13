@@ -99,6 +99,15 @@ docker run --rm iflyelf/php:latest php /usr/local/bin/zabbix-check.php
 `php.ini` 也已按 Zabbix 建议调优：`max_input_vars=10000`、`max_execution_time=600`、
 `max_input_time=600`、`memory_limit=10240M`、`post_max_size=100M`、`upload_max_filesize=10240M`。
 
+构建期还会做严格自检（任一不满足即构建失败）：
+
+- `php -v` 启动输出中不得出现 `Warning` / `Deprecated`；
+- `redis`、`swoole`、`mongodb`、`mysqli`、`pgsql`、`pdo_mysql`、`pdo_pgsql`、`Zend OPcache` 逐个校验已加载；
+- `php-fpm -t` 配置校验通过。
+
+> 注：PHP 8.5 将 opcache / mysqli / pgsql / pdo_* 静态编入二进制；本镜像已同步调整
+> （`mysqli/pgsql/pdo_*` 以 `=shared` 构建，opcache 不再用 `zend_extension` 加载），避免启动告警。
+
 > 注意：若手动把 `PHP_VERSION` 降到 8.5.12 以下，构建会因安全基线校验失败；
 > 如需临时放宽，可调整 Dockerfile 中的 `ARG ZABBIX_MIN_PHP`。
 
