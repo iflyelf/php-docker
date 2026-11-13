@@ -55,6 +55,8 @@ ENV PHP_VERSION=$PHP_VERSION \
 # 说明: PHP 8.4 起已移除 --with-imap / --with-mhash / --with-cdb / --with-mcrypt,
 #       这里同步清理, 避免 configure 报 "unrecognized option"。
 #       mysqlnd 自带压缩支持, 无需 --enable-mysqlnd-compression-support。
+#       ctype / xml / dom / simplexml / session 等默认启用, 不显式传入
+#       (避免无意义的编译参数变动导致缓存失效), 由构建末尾的 Zabbix 自检兜底验证。
 ARG PHP_BUILD_CONFIG="\
     --prefix=${PHP_DIR} \
     --with-config-file-path=${PHP_DIR}/etc \
@@ -318,6 +320,20 @@ RUN set -eux && \
     php -v && \
     php -m | grep -iE 'redis|swoole|mongodb|pgsql|pdo_mysql|pdo_pgsql|mysqli|opcache' && \
     php-fpm -t
+
+# ***** Zabbix 前端依赖自检 *****
+# 依据 https://www.zabbix.com/documentation/8.0/zh/manual/installation/requirements#frontend
+# 任一必需扩展/版本不满足则构建失败, 避免 PHP 升级后静默丢失 Zabbix 依赖。
+# 说明: Zabbix 8.0 支持 PHP 8.2.0 - 8.5.X, 且 < 8.5.12 存在 CVE-2026-109618/109619,
+#       因此这里以 8.5.12 作为安全基线(8.6+ 自动满足)。
+ARG ZABBIX_MIN_PHP=8.5.12
+ENV ZABBIX_MIN_PHP=$ZABBIX_MIN_PHP
+
+COPY scripts/zabbix-check.php /usr/local/bin/zabbix-check.php
+
+RUN set -eux && \
+    chmod +x /usr/local/bin/zabbix-check.php && \
+    php /usr/local/bin/zabbix-check.php
 
 # 自动检测服务是否可用(监听 9000 端口)
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s CMD ss -lnt | grep -q ':9000' || exit 1

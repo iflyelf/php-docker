@@ -67,6 +67,42 @@ docker compose up -d
 > 说明：PHP 8.4 起官方已移除 `imap`、`mhash`、`cdb`、`mcrypt` 等扩展，本镜像同步移除相关编译参数。
 > 如仍需 IMAP，请改用 PECL 的 `imap` 扩展单独安装。
 
+## Zabbix 前端兼容性
+
+依据 [Zabbix 8.0 前端要求](https://www.zabbix.com/documentation/8.0/zh/manual/installation/requirements#frontend)，
+本镜像已满足全部必需项，并在构建时执行 `scripts/zabbix-check.php` 自检（不满足则构建失败）：
+
+| 要求 | 镜像实现 | 状态 |
+| --- | --- | --- |
+| PHP 8.2.0 - 8.5.X | 当前 8.5.12（自动跟进最新稳定版） | ✅ |
+| PHP ≥ 8.5.12（CVE-2026-109618/109619 安全基线） | 构建期强校验 `ZABBIX_MIN_PHP` | ✅ |
+| `mysqli` | `--with-mysqli=mysqlnd` | ✅ |
+| `pgsql` | `--with-pgsql` / `--with-pdo-pgsql` | ✅ |
+| `bcmath` | `--enable-bcmath` | ✅ |
+| `mbstring` | `--enable-mbstring --enable-mbregex` | ✅ |
+| `sockets` | `--enable-sockets` | ✅ |
+| `gd`（PNG / JPEG / FreeType，≥2.0.28） | `--enable-gd --with-jpeg --with-freetype`（bundled GD 2.3.x） | ✅ |
+| `libxml` ≥ 2.6.15 | 系统 libxml2 2.14+ | ✅ |
+| `xml` / `xmlwriter` / `xmlreader` | 默认启用 + `--enable-xmlwriter/xmlreader` | ✅ |
+| `ctype` | `--enable-ctype` | ✅ |
+| `session` | `--enable-session` | ✅ |
+| `ldap`（LDAP 认证） | `--with-ldap` | ✅ |
+| `openssl`（SAML 认证） | `--with-openssl` | ✅ |
+| `gettext`（翻译） | `--with-gettext` | ✅ |
+| `cURL` ≥ 7.19.4 | 系统 libcurl 8.x，`--with-curl` | ✅ |
+
+运行期可随时复查：
+
+```bash
+docker run --rm iflyelf/php:latest php /usr/local/bin/zabbix-check.php
+```
+
+`php.ini` 也已按 Zabbix 建议调优：`max_input_vars=10000`、`max_execution_time=600`、
+`max_input_time=600`、`memory_limit=10240M`、`post_max_size=100M`、`upload_max_filesize=10240M`。
+
+> 注意：若手动把 `PHP_VERSION` 降到 8.5.12 以下，构建会因安全基线校验失败；
+> 如需临时放宽，可调整 Dockerfile 中的 `ARG ZABBIX_MIN_PHP`。
+
 ## 自动构建
 
 以下情况会触发 [GitHub Actions](./.github/workflows/docker-publish.yml) 构建并推送到 Docker Hub 与华为云 SWR：
