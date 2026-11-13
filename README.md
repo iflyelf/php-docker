@@ -113,51 +113,6 @@ docker run --rm iflyelf/php:latest php /usr/local/bin/zabbix-check.php
 > 注意：若手动把 `PHP_VERSION` 降到 8.5.12 以下，构建会因安全基线校验失败；
 > 如需临时放宽，可调整 Dockerfile 中的 `ARG ZABBIX_MIN_PHP`。
 
-### Zabbix 8.0 + PHP 8.5 已知问题：`curl_close()` 弃用
-
-**现象**：访问 APM / ClickHouse 相关页面时报
-
-```text
-Function curl_close() is deprecated since 8.5, as it has no effect since PHP 8.0
-...
-ApmDbClickHouse->fetch() in include/classes/db/ApmDbClickHouse.php:143
-数据库错误。
-```
-
-**原因**：Zabbix 8.0（含上游 master）在 `include/classes/db/ApmDbClickHouse.php` 的 `finally`
-中调用了 `curl_close($curl)`。PHP 8.5 已弃用该函数（PHP 8.0 起 CurlHandle 对象自动释放，
-调用无任何作用）；Zabbix 的错误处理器会把弃用提示当作错误显示。
-
-> `curl_multi_close()` **未被** PHP 8.5 弃用，不要一起删。
-
-**修复**（推荐，删除一行即可，Zabbix 8.0 要求 PHP ≥ 8.2，无兼容性风险）：
-
-```bash
-# 按实际部署调整路径: 软件包通常为 /usr/share/zabbix
-ZABBIX_DIR=/usr/share/zabbix
-
-sed -i -E 's|^([[:space:]]*)curl_close\(\$curl\);|\1// curl_close() 已弃用(PHP 8.5)且自 PHP 8.0 起无作用, 已移除|' \
-  "${ZABBIX_DIR}/include/classes/db/ApmDbClickHouse.php"
-
-php -l "${ZABBIX_DIR}/include/classes/db/ApmDbClickHouse.php"
-grep -n "curl_close" "${ZABBIX_DIR}/include/classes/db/ApmDbClickHouse.php" || echo "已移除"
-```
-
-如果后续还出现其它 PHP 8.5 弃用提示，可在 `include/func.inc.php` 的 `zbx_err_handler` 开头
-统一忽略弃用（会让 Zabbix 不再把 `E_DEPRECATED` 当错误显示）：
-
-```php
-if ($errno === E_DEPRECATED || $errno === E_USER_DEPRECATED) {
-    return true;
-}
-```
-
-> 说明：仅调小 `php.ini` 的 `error_reporting` 无效 —— Zabbix 的错误处理器只有在
-> `error_reporting` 仅包含致命错误类型时才会跳过，单独排除 `E_DEPRECATED` 仍会被显示。
-
-**临时规避**：将前端切换到 PHP 8.4（Zabbix 8.0 支持 8.2–8.5，8.4 尚未弃用 `curl_close`），
-但会失去 PHP 最新版本；建议优先使用上面的补丁。
-
 ## 自动构建
 
 以下情况会触发 [GitHub Actions](./.github/workflows/docker-publish.yml) 构建并推送到 Docker Hub 与华为云 SWR：
