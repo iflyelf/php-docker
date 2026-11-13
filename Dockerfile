@@ -307,10 +307,16 @@ RUN set -eux && \
     mkdir -pv ${PHP_DIR}/var/run ${PHP_DIR}/var/log ${PHP_DIR}/etc/conf.d && \
     # 日志转发到 docker 日志收集器
     ln -sf /dev/stderr ${PHP_DIR}/var/log/php-fpm.log && \
-    # extension_dir 自动跟随当前 PHP 版本(ZEND_MODULE_API_NO 随版本变化, 不再手工维护)
+    # extension_dir 不写进 php.ini: PHP 编译时已把默认扩展目录写进二进制
+    # (== php-config --extension-dir), 升级 PHP 后自动匹配, 无需任何同步。
+    # 这里仅做一致性校验, 不一致直接失败。
     EXT_DIR="$(${PHP_DIR}/bin/php-config --extension-dir)" && \
-    sed -i "s|^extension_dir = .*|extension_dir = \"${EXT_DIR}/\"|" ${PHP_DIR}/etc/php.ini && \
-    grep -E '^extension_dir' ${PHP_DIR}/etc/php.ini && \
+    INI_EXT_DIR="$(php -r 'echo ini_get("extension_dir");')" && \
+    echo "extension_dir(ini): ${INI_EXT_DIR}" && \
+    echo "extension_dir(php-config): ${EXT_DIR}" && \
+    if [ "${INI_EXT_DIR}" != "${EXT_DIR}" ] || [ ! -d "${INI_EXT_DIR}" ]; then \
+        echo "ERROR: extension_dir 校验失败(ini=${INI_EXT_DIR}, php-config=${EXT_DIR})" >&2 && exit 1; \
+    fi && \
     # 软链 php/php-fpm 到系统 PATH
     ln -sf ${PHP_DIR}/bin/* /usr/bin/ && \
     ln -sf ${PHP_DIR}/sbin/* /usr/sbin/ && \

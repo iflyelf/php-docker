@@ -20,13 +20,15 @@
 
 运行阶段环境变量：`PATH` 追加 `${PHP_DIR}/bin`；入口使用 tini；`php-fpm` 日志转发到 Docker 日志收集器。
 
-### extension_dir 自动跟随 PHP 版本
+### extension_dir 无需配置（动态取编译期默认值）
 
-`php.ini` 中的扩展目录后缀是 PHP 的 `ZEND_MODULE_API_NO`（如 PHP 8.4 → `20240924`，PHP 8.5 → `20250925`），
-会随 PHP 大版本变化。本项目通过两种方式保证其始终正确：
+`php.ini` 中**不再写死** `extension_dir`。PHP 编译时已将默认扩展目录写入二进制
+（由 `--prefix` 决定，等价于 `php-config --extension-dir`，其中包含随 PHP 版本变化的
+`no-debug-non-zts-<ZEND_MODULE_API_NO>` 后缀）。因此：
 
-- **构建时**：Dockerfile 用 `php-config --extension-dir` 读取真实路径并自动写回 `php.ini`，升级 PHP 无感知；
-- **定时任务**：`update-version.yml` 从 `php-src` 的 `Zend/zend_modules.h` 读取 `ZEND_MODULE_API_NO` 并同步更新仓库中的 `php.ini`。
+- 升级 PHP 后扩展目录**自动匹配**，不存在“版本号没更新导致扩展加载失败”的问题；
+- 仓库配置无需手工维护，版本更新脚本也不再修改 `php.ini`；
+- 构建时会校验 `ini_get('extension_dir')` 与 `php-config --extension-dir` 完全一致且目录存在，否则构建失败。
 
 ## 镜像获取
 
@@ -125,8 +127,8 @@ docker run --rm iflyelf/php:latest php /usr/local/bin/zabbix-check.php
 ### 构建前自动同步版本号
 
 构建流程的**第一步**会执行 [scripts/update-version.sh](./scripts/update-version.sh)：
-先检查并更新 `Dockerfile` 的 `PHP_VERSION` / `REDIS_VERSION` / `SWOOLE_VERSION` / `MONGODB_VERSION`
-及 `php.ini` 的 `extension_dir`，如有变化则自动提交，**然后再构建**。
+先检查并更新 `Dockerfile` 的 `PHP_VERSION` / `REDIS_VERSION` / `SWOOLE_VERSION` / `MONGODB_VERSION`，
+如有变化则自动提交，**然后再构建**。
 因此即使定时更新工作流未运行，也不会用旧版本号构建镜像。
 
 ### 版本自动更新
@@ -135,7 +137,8 @@ docker run --rm iflyelf/php:latest php /usr/local/bin/zabbix-check.php
 
 - PHP 最新**稳定版**（php.net releases，排除 RC/beta/alpha 等，只升不降）
 - PECL 扩展 redis / swoole / mongodb 最新**稳定版**
-- `php.ini` 的 `extension_dir` 同步为最新 `ZEND_MODULE_API_NO`
+
+> `extension_dir` 不在 `php.ini` 中配置，由 PHP 编译期内置默认值决定，无需同步。
 
 > 该工作流只负责提交版本号；实际构建由 `docker-publish.yml` 完成，且其构建前会再次执行同一脚本，二者不会冲突。
 

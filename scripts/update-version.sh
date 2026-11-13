@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 #=================================================
 # https://github.com/iflyelf/php-docker
-# 同步 PHP / PECL 扩展版本号, 并同步 php.ini 的 extension_dir
+# 同步 PHP / PECL 扩展版本号
+#
+# 说明: 扩展目录(extension_dir)不在 php.ini 中硬编码, 由 PHP 编译期内置默认值决定,
+#       升级 PHP 后自动匹配, 本脚本无需也不应同步它。
 #
 # 用法:
 #   bash scripts/update-version.sh
@@ -13,7 +16,6 @@
 set -euo pipefail
 
 DOCKERFILE="${DOCKERFILE:-Dockerfile}"
-PHP_INI="${PHP_INI:-conf/php/etc/php.ini}"
 
 # ---------- 稳定版过滤: 排除 rc/beta/alpha/test/dev/preview/snapshot ----------
 is_stable() {
@@ -41,12 +43,6 @@ pecl_latest_stable() {
         | sed -e 's|<v>||' -e 's|</v>||' \
         | while read -r v; do is_stable "$v" && echo "$v"; done \
         | awk 'NR==1{v=$0} END{print v}' || true
-}
-
-# ---------- 取指定 PHP 版本的 ZEND_MODULE_API_NO(扩展目录后缀, 如 20250925) ----------
-zend_api_no() {
-    { curl -fsSL "https://raw.githubusercontent.com/php/php-src/php-$1/Zend/zend_modules.h" 2>/dev/null || true; } \
-        | grep -oP '#define ZEND_MODULE_API_NO\s+\K[0-9]+' | head -1 || true
 }
 
 CHANGED=0
@@ -77,24 +73,6 @@ echo "===== 检查 PECL 扩展(仅稳定版) ====="
 try_update REDIS_VERSION "$(pecl_latest_stable redis)"
 try_update SWOOLE_VERSION "$(pecl_latest_stable swoole)"
 try_update MONGODB_VERSION "$(pecl_latest_stable mongodb)"
-
-# ---------- php.ini 的 extension_dir 跟随 PHP 版本自动更新 ----------
-CURRENT_PHP=$(grep -oP 'ARG PHP_VERSION=\K.*' "$DOCKERFILE" | head -1 || true)
-API_NO=$(zend_api_no "$CURRENT_PHP")
-if [ -n "$API_NO" ]; then
-    OLD_LINE=$(grep -E '^extension_dir' "$PHP_INI" | head -1 || true)
-    NEW_LINE="extension_dir = \"/data/php/lib/php/extensions/no-debug-non-zts-${API_NO}/\""
-    if [ "$OLD_LINE" != "$NEW_LINE" ]; then
-        echo "  [extension_dir] 更新: ${OLD_LINE} => ${NEW_LINE}"
-        sed -i -E "s|^extension_dir = .*|${NEW_LINE}|" "$PHP_INI"
-        CHANGED=1
-        SUMMARY="${SUMMARY}\n- extension_dir: ${OLD_LINE} => ${NEW_LINE}"
-    else
-        echo "  [extension_dir] 已匹配 PHP ${CURRENT_PHP} (${API_NO})"
-    fi
-else
-    echo "  [extension_dir] 获取 ZEND_MODULE_API_NO 失败, 跳过"
-fi
 
 echo ""
 if [ "$CHANGED" = "1" ]; then
