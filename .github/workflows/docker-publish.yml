@@ -36,42 +36,30 @@ on:
   watch:
      types: [started]
 
-# 同一分支仅保留最新一次构建：快速连续提交时自动取消旧构建，
-# 避免多个多架构（QEMU）构建并发堆积、互相拖慢导致镜像迟迟不更新。
+# 同一分支仅保留最新一次构建：快速连续提交时自动取消旧构建
 concurrency:
   group: publish-${{ github.ref }}
   cancel-in-progress: true
 
- # 任务集
 jobs:
-  build:
-    # 选择虚拟环境
+  # ===================================================================
+  # 1) 先同步 PHP / PECL 最新版本号, 再构建(避免版本号不是最新)
+  # ===================================================================
+  prepare:
+    name: 同步版本号
     runs-on: ubuntu-latest
-    # 多架构 PHP 编译较慢(arm64 走 QEMU), 首次构建可能 2~3 小时, 超时兜底
-    timeout-minutes: 300
     if: github.event_name == 'schedule' || github.event.repository.owner.id == github.event.sender.id
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - DOCKER_TAG: latest
-
-    # 权限(contents: write 用于提交版本号更新)
     permissions:
-      actions: write
       contents: write
-
-    # 运行步骤
+    outputs:
+      php_version: ${{ steps.phpver.outputs.version }}
     steps:
-
-    # 检出master分支
-    - name: 检出各个模块代码
+    - name: 检出代码
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
-    # 关键: 先同步 PHP / PECL 最新版本号, 再构建, 避免版本号不是最新
-    - name: 同步 PHP / PECL 最新版本号(先更新, 再构建)
+    - name: 同步 PHP / PECL 最新版本号
       run: bash scripts/update-version.sh
 
     - name: 提交版本号更新
@@ -84,7 +72,6 @@ jobs:
         # 推送失败不影响本次构建(镜像仍基于更新后的本地文件构建)
         git push || echo "::warning::版本更新推送失败, 本次构建仍使用更新后的本地文件"
 
-    # 从 Dockerfile 读取当前 PHP 版本, 作为附加镜像标签
     - name: 读取 PHP 版本号
       id: phpver
       run: |
@@ -92,13 +79,39 @@ jobs:
         echo "检测到 PHP 版本: ${PHP_VERSION}"
         echo "version=${PHP_VERSION}" >> "$GITHUB_OUTPUT"
 
-    - name: 安装 QEMU
-      uses: docker/setup-qemu-action@v3
+  # ===================================================================
+  # 2) 双架构并行原生构建(不再使用 QEMU 模拟, 速度提升一个数量级)
+  #    - amd64: ubuntu-latest (x64 原生)
+  #    - arm64: ubuntu-24.04-arm (arm64 原生, public 仓库免费)
+  #    每个架构先推送带后缀的单架构标签, 由 merge 作业合并成多架构清单
+  # ===================================================================
+  build:
+    name: 构建 ${{ matrix.arch }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    # 原生编译通常 10~20 分钟, 超时兜底
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    steps:
+    # 使用 prepare 作业可能刚提交的最新代码
+    - name: 检出代码
+      uses: actions/checkout@v4
       with:
-        platforms: all
+        ref: ${{ github.ref_name }}
+        fetch-depth: 0
 
     - name: 安装 docker buildx
-      id: buildx
       uses: docker/setup-buildx-action@v3
       with:
         version: latest
@@ -116,29 +129,86 @@ jobs:
         username: ${{ secrets.SWR_USERNAME }}
         password: ${{ secrets.SWR_PASSWORD }}
 
-    - name: 构建镜像并发布
+    - name: 构建单架构镜像并推送
       uses: docker/build-push-action@v6
       # 华为云 SWR 不支持 OCI media types 与证明清单(attestation)，
-      # 否则报 "Invalid image, fail to parse 'manifest.json'"。
       # 关闭 provenance/sbom 并输出 Docker 媒体类型以兼容 SWR。
-      #
-      # 缓存策略: mode=max 可复用 PHP 编译层, 之后版本没变时构建只需几分钟;
-      # ignore-error=true 避免缓存导出失败拖垮整个构建(本次即卡在缓存导出)。
       with:
         context: .
         file: ./Dockerfile
-        platforms: linux/amd64,linux/arm64
+        platforms: ${{ matrix.platform }}
         push: true
         provenance: false
         sbom: false
         outputs: type=image,oci-mediatypes=false
         tags: |
-          ${{ secrets.DOCKER_USERNAME }}/php:${{ matrix.DOCKER_TAG }}
-          ${{ secrets.DOCKER_USERNAME }}/php:${{ steps.phpver.outputs.version }}
-          ${{ env.SWR_REGISTRY }}/${{ env.SWR_ORGANIZATION }}/php:${{ matrix.DOCKER_TAG }}
-          ${{ env.SWR_REGISTRY }}/${{ env.SWR_ORGANIZATION }}/php:${{ steps.phpver.outputs.version }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max,ignore-error=true
+          ${{ secrets.DOCKER_USERNAME }}/php:latest-${{ matrix.arch }}
+          ${{ secrets.DOCKER_USERNAME }}/php:${{ needs.prepare.outputs.php_version }}-${{ matrix.arch }}
+          ${{ env.SWR_REGISTRY }}/${{ env.SWR_ORGANIZATION }}/php:latest-${{ matrix.arch }}
+          ${{ env.SWR_REGISTRY }}/${{ env.SWR_ORGANIZATION }}/php:${{ needs.prepare.outputs.php_version }}-${{ matrix.arch }}
+        # 每架构独立缓存作用域, 避免互相覆盖
+        cache-from: type=gha,scope=php-${{ matrix.arch }}
+        cache-to: type=gha,mode=min,scope=php-${{ matrix.arch }},ignore-error=true
+
+  # ===================================================================
+  # 3) 合并单架构镜像为多架构清单(使用 docker manifest, 产出 Docker v2
+  #    manifest list, 与华为云 SWR 兼容; buildx imagetools 会产出 OCI index)
+  # ===================================================================
+  merge:
+    name: 合并多架构清单
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+    - name: 登录 DockerHub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: 登录华为云 SWR
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.SWR_REGISTRY }}
+        username: ${{ secrets.SWR_USERNAME }}
+        password: ${{ secrets.SWR_PASSWORD }}
+
+    - name: 生成并推送多架构清单
+      env:
+        DOCKERHUB_REPO: ${{ secrets.DOCKER_USERNAME }}/php
+        SWR_REPO: ${{ env.SWR_REGISTRY }}/${{ env.SWR_ORGANIZATION }}/php
+        PHP_VERSION: ${{ needs.prepare.outputs.php_version }}
+      run: |
+        set -euo pipefail
+        export DOCKER_CLI_EXPERIMENTAL=enabled
+        [ -n "${PHP_VERSION}" ] || { echo "ERROR: PHP_VERSION 为空"; exit 1; }
+        echo "PHP 版本: ${PHP_VERSION}"
+        for repo in "${DOCKERHUB_REPO}" "${SWR_REPO}"; do
+          for tag in latest "${PHP_VERSION}"; do
+            echo "==> ${repo}:${tag}  <=  ${tag}-amd64 + ${tag}-arm64"
+            docker manifest create "${repo}:${tag}" --amend \
+              "${repo}:${tag}-amd64" \
+              "${repo}:${tag}-arm64"
+            docker manifest push --purge "${repo}:${tag}"
+          done
+        done
+        echo "多架构清单合并完成"
+
+    - name: 校验多架构清单
+      env:
+        DOCKERHUB_REPO: ${{ secrets.DOCKER_USERNAME }}/php
+        SWR_REPO: ${{ env.SWR_REGISTRY }}/${{ env.SWR_ORGANIZATION }}/php
+      run: |
+        set -euo pipefail
+        export DOCKER_CLI_EXPERIMENTAL=enabled
+        for repo in "${DOCKERHUB_REPO}" "${SWR_REPO}"; do
+          echo "===== ${repo}:latest ====="
+          docker manifest inspect "${repo}:latest" \
+            | jq -r '.manifests[] | "  \(.platform.architecture)/\(.platform.os)"' 2>/dev/null \
+            || docker manifest inspect "${repo}:latest"
+        done
 
     # 华为云 SWR 镜像仓库默认私有，push 后调用 SWR API 设为公开
     # 需 Secrets: SWR_AK / SWR_SK（华为云账号 AK/SK，具备 swr:repo:updateRepo 权限）

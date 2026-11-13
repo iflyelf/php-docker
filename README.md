@@ -132,10 +132,19 @@ docker run --rm iflyelf/php:latest php /usr/local/bin/zabbix-check.php
 
 ### 构建耗时说明
 
-- 首次全量构建（无缓存）：多架构 + arm64 QEMU 模拟，约 **2~3 小时**；
-- 之后版本未变时：命中 `type=gha` 缓存，通常 **几分钟**；
-- `cache-to: mode=max,ignore-error=true`：保留可复用的编译层，缓存导出失败不会中断构建；
-- 任务超时保护：`timeout-minutes: 300`。
+构建采用**双架构并行原生编译**（不再使用 QEMU 模拟 arm64）：
+
+| 架构 | Runner | 说明 |
+| --- | --- | --- |
+| amd64 | `ubuntu-latest`（x64 原生） | 4 vCPU |
+| arm64 | `ubuntu-24.04-arm`（arm64 原生，public 仓库免费） | 4 vCPU，速度与 x64 相当 |
+
+两个架构并行构建，各自推送 `latest-amd64` / `latest-arm64`（及版本号后缀）单架构镜像，
+最后由 merge 作业用 `docker manifest` 合并为多架构清单 `latest` 与 `<php_version>`。
+
+- 全量构建：约 **10~20 分钟**（两架构并行）
+- 版本/代码未变：命中每架构的 GHA 缓存，约 **2~5 分钟**
+- 任务超时保护：`timeout-minutes: 120`
 
 ### 所需 Secrets
 
