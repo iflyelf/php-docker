@@ -57,6 +57,8 @@ ENV PHP_VERSION=$PHP_VERSION \
 #       mysqlnd 自带压缩支持, 无需 --enable-mysqlnd-compression-support。
 #       ctype / xml / dom / simplexml / session 等默认启用, 不显式传入
 #       (避免无意义的编译参数变动导致缓存失效), 由构建末尾的 Zabbix 自检兜底验证。
+#       GD 使用系统 libgd(2.3.x): Zabbix 文档指出部分语言(中文等)需 GD >= 2.3.0
+#       才能避免图表文字重叠, 故用 --with-external-gd 替代 bundled GD(2.1.0)。
 ARG PHP_BUILD_CONFIG="\
     --prefix=${PHP_DIR} \
     --with-config-file-path=${PHP_DIR}/etc \
@@ -64,10 +66,8 @@ ARG PHP_BUILD_CONFIG="\
     --with-fpm-user=nginx \
     --with-fpm-group=nginx \
     --with-curl \
-    --with-freetype \
-    --with-webp \
-    --with-jpeg \
     --enable-gd \
+    --with-external-gd \
     --with-gettext \
     --with-openssl \
     --with-external-pcre \
@@ -124,6 +124,7 @@ ENV PHP_BUILD_CONFIG=$PHP_BUILD_CONFIG
 # 运行阶段对应的非 -dev 库见 runtime 的 PHP_RUNTIME_DEPS。
 ARG PHP_EXTRA_BUILD_DEPS="\
     libcurl4-openssl-dev \
+    libgd-dev \
     libpng-dev \
     libwebp-dev \
     libfreetype-dev \
@@ -234,7 +235,7 @@ ENV PATH=${PHP_DIR}/bin:$PATH
 # 依据编译参数精确选取运行库:
 #   libxml2-16        -> libxml / dom / simplexml / xmlreader / xmlwriter
 #   libcurl4t64       -> curl
-#   libpng16-16t64 / libjpeg-turbo8 / libfreetype6 / libwebp7 -> gd
+#   libgd3            -> gd(外部 libgd 2.3.x, 自带 PNG/JPEG/FreeType/WebP 支持)
 #   libzip5           -> zip
 #   libonig5          -> mbstring
 #   libicu78          -> intl
@@ -255,10 +256,7 @@ ENV PATH=${PHP_DIR}/bin:$PATH
 ARG PHP_RUNTIME_DEPS="\
     libxml2-16 \
     libcurl4t64 \
-    libpng16-16t64 \
-    libjpeg-turbo8 \
-    libfreetype6 \
-    libwebp7 \
+    libgd3 \
     libzip5 \
     libonig5 \
     libicu78 \
@@ -327,7 +325,9 @@ RUN set -eux && \
 # 说明: Zabbix 8.0 支持 PHP 8.2.0 - 8.5.X, 且 < 8.5.12 存在 CVE-2026-109618/109619,
 #       因此这里以 8.5.12 作为安全基线(8.6+ 自动满足)。
 ARG ZABBIX_MIN_PHP=8.5.12
-ENV ZABBIX_MIN_PHP=$ZABBIX_MIN_PHP
+ARG ZABBIX_MIN_GD=2.3.0
+ENV ZABBIX_MIN_PHP=$ZABBIX_MIN_PHP \
+    ZABBIX_MIN_GD=$ZABBIX_MIN_GD
 
 COPY scripts/zabbix-check.php /usr/local/bin/zabbix-check.php
 

@@ -9,6 +9,8 @@
  */
 
 $minPhp = getenv('ZABBIX_MIN_PHP') ?: '8.5.12';
+// Zabbix 文档: 部分语言(中文等)建议 GD >= 2.3.0, 否则图表可能文字重叠
+$minGd = getenv('ZABBIX_MIN_GD') ?: '2.3.0';
 
 // Zabbix 8.0 前端必需扩展
 $required = [
@@ -59,8 +61,8 @@ if (extension_loaded('gd')) {
         }
     }
     if (!preg_match('/([0-9]+\.[0-9]+\.[0-9]+)/', $gd['GD Version'] ?? '', $m)
-        || version_compare($m[1], '2.0.28', '<')) {
-        $errors[] = 'GD 版本过低: ' . ($gd['GD Version'] ?? 'unknown');
+        || version_compare($m[1], $minGd, '<')) {
+        $errors[] = sprintf('GD 版本过低: %s (需要 >= %s)', $gd['GD Version'] ?? 'unknown', $minGd);
     }
 }
 

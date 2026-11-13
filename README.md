@@ -13,10 +13,9 @@
 | runtime | `iflyelf/ubuntu:lite` | 仅拷贝 PHP 安装目录 + 安装 PHP 运行所需的共享库，镜像更小 |
 
 运行阶段额外安装的运行库（按编译参数精确选取）：
-`libxml2-16`、`libcurl4t64`、`libpng16-16t64`、`libjpeg-turbo8`、`libfreetype6`、`libwebp7`（GD）、
-`libzip5`、`libonig5`（mbstring）、`libicu78`（intl）、`libreadline8t64`、`libgmp10`、`libbz2-1.0`、
-`libtidy58`、`libpq5`（pgsql）、`libsqlite3-0`、`libldap2`、`libpcre2-8-0`、`libsodium23`、
-`libargon2-1`、`libmagic1t64`（fileinfo）、`libxslt1.1`（xsl）、`libstdc++6`（swoole）、
+`libxml2-16`、`libcurl4t64`、`libgd3`（GD，系统 libgd 2.3.x）、`libzip5`、`libonig5`（mbstring）、`libicu78`（intl）、
+`libreadline8t64`、`libgmp10`、`libbz2-1.0`、`libtidy58`、`libpq5`（pgsql）、`libsqlite3-0`、`libldap2`、
+`libpcre2-8-0`、`libsodium23`、`libargon2-1`、`libmagic1t64`（fileinfo）、`libxslt1.1`（xsl）、`libstdc++6`（swoole）、
 `zlib1g`、`ca-certificates`。
 
 运行阶段环境变量：`PATH` 追加 `${PHP_DIR}/bin`；入口使用 tini；`php-fpm` 日志转发到 Docker 日志收集器。
@@ -81,7 +80,7 @@ docker compose up -d
 | `bcmath` | `--enable-bcmath` | ✅ |
 | `mbstring` | `--enable-mbstring --enable-mbregex` | ✅ |
 | `sockets` | `--enable-sockets` | ✅ |
-| `gd`（PNG / JPEG / FreeType，≥2.0.28） | `--enable-gd --with-jpeg --with-freetype`（bundled GD 2.3.x） | ✅ |
+| `gd`（PNG / JPEG / FreeType，≥2.3.0） | `--enable-gd --with-external-gd`（系统 libgd 2.3.3，避免中文图表文字重叠） | ✅ |
 | `libxml` ≥ 2.6.15 | 系统 libxml2 2.14+ | ✅ |
 | `xml` / `xmlwriter` / `xmlreader` | 默认启用 + `--enable-xmlwriter/xmlreader` | ✅ |
 | `ctype` | `--enable-ctype` | ✅ |
