@@ -15,7 +15,7 @@ ARG PHP_VERSION=8.5.12
 # redis    https://pecl.php.net/package/redis
 ARG REDIS_VERSION=6.3.0
 # swoole   https://pecl.php.net/package/swoole
-ARG SWOOLE_VERSION=6.2.5
+ARG SWOOLE_VERSION=6.2.6
 # mongodb  https://pecl.php.net/package/mongodb
 ARG MONGODB_VERSION=2.5.7
 
