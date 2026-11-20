@@ -9,7 +9,7 @@
 
 # ========================= 全局版本变量(两个阶段共享) =========================
 # PHP  https://github.com/php/php-src
-ARG PHP_VERSION=8.5.12
+ARG PHP_VERSION=8.6.0
 
 # 扩展插件版本
 # redis    https://pecl.php.net/package/redis
