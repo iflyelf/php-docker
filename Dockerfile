@@ -17,7 +17,7 @@ ARG REDIS_VERSION=6.3.0
 # swoole   https://pecl.php.net/package/swoole
 ARG SWOOLE_VERSION=6.2.6
 # mongodb  https://pecl.php.net/package/mongodb
-ARG MONGODB_VERSION=2.5.7
+ARG MONGODB_VERSION=2.5.8
 
 # 公共路径
 ARG PHP_DIR=/data/php
