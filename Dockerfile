@@ -15,9 +15,9 @@ ARG PHP_VERSION=8.6.0
 # redis    https://pecl.php.net/package/redis
 ARG REDIS_VERSION=6.3.0
 # swoole   https://pecl.php.net/package/swoole
-ARG SWOOLE_VERSION=6.2.6
+ARG SWOOLE_VERSION=6.3.0
 # mongodb  https://pecl.php.net/package/mongodb
-ARG MONGODB_VERSION=2.5.8
+ARG MONGODB_VERSION=2.5.9
 
 # 公共路径
 ARG PHP_DIR=/data/php
